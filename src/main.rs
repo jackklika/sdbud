@@ -1,14 +1,23 @@
 mod gui;
 mod music;
+mod findsd;
+mod error;
 
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
 use id3::{Tag, TagLike};
+use crate::findsd::list_sd_cards;
 use crate::gui::render;
 use crate::music::{get_music, MusicState};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+pub type Result<T> = std::result::Result<T, error::Error>;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+
+    let sd_cards = list_sd_cards()?;
+    println!("sd cards:");
+    for card in sd_cards {
+        println!("{:?}", card);
+    }
 
     let albums = get_music().unwrap();
     //println!("{:#?}", albums);
