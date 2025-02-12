@@ -1,5 +1,6 @@
 #![allow(rustdoc::missing_crate_level_docs)] // it's an example
 
+use std::sync::mpsc::{Receiver, Sender};
 use eframe::egui;
 use egui::{vec2, Color32, Frame, Id, Ui};
 use crate::music::MusicState;
@@ -12,7 +13,7 @@ pub fn render(state: MusicState) -> eframe::Result {
     eframe::run_native(
         "My egui App",
         options,
-        Box::new(move |_cc| Ok(Box::new(MyApp::new(state)))),
+        Box::new(move |_cc| Ok(Box::new(MyApp::default()))),
     )
 }
 
@@ -20,13 +21,20 @@ pub struct DragAndDropDemo {
     /// columns with items
     columns: Vec<Vec<String>>,
 }
-
+// The messages that can be passed between the
+// main egui thread and the tokio thread
+pub enum AppMessage {
+    ApplicationLoad(),
+    IncrementNumber(u32),
+}
 
 struct MyApp {
     name: String,
     age: u32,
     drag_and_drop: DragAndDropDemo,
     state: MusicState,
+    pub tx: Sender<AppMessage>,
+    pub rx: Receiver<AppMessage>,
 }
 
 
@@ -39,24 +47,9 @@ struct Location {
 
 
 
-impl MyApp {
-    pub fn new(state: MusicState) -> Self {
-        Self {
-            name: "Arthur".to_owned(),
-            age: 42,
-            drag_and_drop: DragAndDropDemo {
-                columns: vec![
-                    vec!["Item 1".to_owned(), "Item 2".to_owned(), "Item 3".to_owned()],
-                    vec!["Item 4".to_owned(), "Item 5".to_owned()],
-                    vec!["Item 6".to_owned(), "Item 7".to_owned()],
-                ],
-            },
-            state,
-        }
-    }
-}
 impl Default for MyApp {
     fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
         Self {
             name: "Arthur".to_owned(),
             age: 42,
@@ -68,6 +61,8 @@ impl Default for MyApp {
                 ],
             },
             state: MusicState::default(),
+            tx: tx,
+            rx: rx,
         }
     }
 }
@@ -79,6 +74,18 @@ pub trait View {
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Handle message from the tokio thread
+        match self.rx.try_recv() {
+            Ok(AppMessage::ApplicationLoad()) => {
+                println!("Application Load", );
+            }
+            Ok(AppMessage::IncrementNumber(num)) => {
+                println!("Incrementing Number: {:?}", num);
+                self.age += num;
+            }
+            _ => {}
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("My egui Application");
             ui.horizontal(|ui| {
@@ -88,7 +95,8 @@ impl eframe::App for MyApp {
             });
             ui.add(egui::Slider::new(&mut self.age, 0..=120).text("age"));
             if ui.button("Increment").clicked() {
-                self.age += 1;
+                //self.age += 1;
+                self.tx.send(AppMessage::IncrementNumber(1)).expect("TODO: panic message");
             }
             ui.label(format!("Hello '{}', age {}", self.name, self.age));
 
@@ -191,4 +199,10 @@ impl View for DragAndDropDemo {
         }
 
     }
+}
+
+fn increment_number(to_add: u32, tx: Sender<AppMessage>) {
+    tokio::spawn(async move {
+        tx.send(AppMessage::IncrementNumber(to_add))
+    });
 }
